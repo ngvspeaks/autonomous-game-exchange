@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aethelgard Market Simulation | Real-Time Double-Auction Engine</title>
+    <!-- Modern & Retro Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Outfit:wght@300;400;500;600;700&family=VT323&display=swap" rel="stylesheet">
+
+    <!-- SockJS and STOMP Client Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
+    <style>
+        :root {
+            --bg-base: #090c10;
+            --bg-card: rgba(18, 22, 34, 0.82);
+            --bg-card-border: rgba(245, 158, 11, 0.25);
+            --accent-gold: #f59e0b;
+            --accent-gold-glow: rgba(245, 158, 11, 0.4);
+            --accent-emerald: #10b981;
+            --accent-cyan: #06b6d4;
+            --accent-purple: #a855f7;
+            --accent-orange: #f97316;
+            --text-primary: #f8fafc;
+            --text-muted: #94a3b8;
+            --font-fantasy: 'Cinzel', serif;
+            --font-ui: 'Outfit', sans-serif;
+            --font-retro: 'VT323', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            background-image: 
+                radial-gradient(circle at 50% 10%, rgba(245, 158, 11, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 10% 90%, rgba(168, 85, 247, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 40%);
+            color: var(--text-primary);
+            font-family: var(--font-ui);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px 24px;
+            overflow-x: hidden;
+        }
+
+        /* Top Header Navigation */
+        header {
+            width: 100%;
+            max-width: 1220px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--bg-card-border);
+            border-radius: 12px;
+            backdrop-filter: blur(12px);
+            margin-bottom: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .title-icon {
+            font-size: 28px;
+            filter: drop-shadow(0 0 10px var(--accent-gold));
+        }
+
+        h1 {
+            font-family: var(--font-fantasy);
+            font-size: 1.45rem;
+            letter-spacing: 1.5px;
+            color: #fbbf24;
+            text-shadow: 0 0 16px rgba(251, 191, 36, 0.35);
+        }
+
+        .subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(15, 23, 42, 0.7);
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.82rem;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+            box-shadow: 0 0 10px #ef4444;
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.online {
+            background: var(--accent-emerald);
+            box-shadow: 0 0 12px var(--accent-emerald);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.15); }
+        }
+
+        /* Main Simulation Layout */
+        .simulation-container {
+            width: 100%;
+            max-width: 1220px;
+            display: grid;
+            grid-template-columns: 800px 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        /* Canvas Wrapper */
+        .canvas-card {
+            background: #0d1117;
+            border: 2px solid #2d3748;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8), 0 0 25px rgba(245, 158, 11, 0.1);
+            position: relative;
+        }
+
+        .canvas-toolbar {
+            position: absolute;
+            top: 10px;
+            left: 12px;
+            display: flex;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        .badge-pill {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            backdrop-filter: blur(6px);
+            font-family: var(--font-retro);
+            letter-spacing: 1px;
+        }
+
+        .badge-pill span {
+            color: #38bdf8;
+            font-weight: bold;
+        }
+
+        #marketCanvas {
+            display: block;
+            background: #0b0f17;
+            cursor: crosshair;
+        }
+
+        /* Right-Side HUD Panel */
+        .hud-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            height: 600px;
+        }
+
+        .hud-card {
+            background: var(--bg-card);
+            border: 1px solid var(--bg-card-border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .card-header {
+            font-family: var(--font-fantasy);
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            color: var(--accent-gold);
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(245, 158, 11, 0.15);
+            padding-bottom: 6px;
+        }
+
+        /* Metric Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .metric-box {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-family: var(--font-retro);
+            font-size: 1.8rem;
+            color: #38bdf8;
+            line-height: 1;
+            margin-top: 4px;
+        }
+
+        .metric-label {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Role Breakdown Bar */
+        .role-tags {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            gap: 6px;
+        }
+
+        .role-tag {
+            flex: 1;
+            padding: 5px 6px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .tag-miner { background: rgba(249, 115, 22, 0.15); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.3); }
+        .tag-crafter { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+        .tag-merchant { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+
+        /* Order Book Overview */
+        .market-quotes {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .quote-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.5);
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+        }
+
+        .quote-item {
+            font-weight: 600;
+            color: #f1f5f9;
+        }
+
+        .quote-bid { color: #38bdf8; font-family: var(--font-retro); font-size: 1.1rem; }
+        .quote-ask { color: #f43f5e; font-family: var(--font-retro); font-size: 1.1rem; }
+        .quote-spread { color: var(--accent-gold); font-size: 0.75rem; }
+
+        /* Live Trade Feed */
+        .trades-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .trades-log {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding-right: 4px;
+        }
+
+        .trades-log::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .trades-log::-webkit-scrollbar-thumb {
+            background: rgba(245, 158, 11, 0.3);
+            border-radius: 4px;
+        }
+
+        .trade-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.7);
+            border-left: 3px solid var(--accent-emerald);
+            padding: 6px 8px;
+            border-radius: 4px;
+            font-size: 0.76rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .trade-item.sell {
+            border-left-color: var(--accent-orange);
+        }
+
+        .trade-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .trade-asset {
+            font-weight: 600;
+            color: #f8fafc;
+        }
+
+        .trade-agents {
+            font-size: 0.68rem;
+            color: var(--text-muted);
+        }
+
+        .trade-price {
+            font-family: var(--font-retro);
+            font-size: 1.05rem;
+            color: #4ade80;
+            text-align: right;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Footer Credits */
+        footer {
+            margin-top: 16px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Bar -->
+    <header>
+        <div class="header-title">
+            <span class="title-icon">⚔️</span>
+            <div>
+                <h1>Aethelgard Market Simulation</h1>
+                <div class="subtitle">High-Performance Double-Auction Engine • Java 23 Virtual Threads</div>
+            </div>
+        </div>
+
+        <div class="connection-status">
+            <div id="statusDot" class="status-dot"></div>
+            <span id="statusText">CONNECTING...</span>
+            <span id="fpsBadge" class="badge-pill">FPS: <span>60</span></span>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="simulation-container">
+
+        <!-- 800x600 Simulation Canvas -->
+        <div class="canvas-card">
+            <div class="canvas-toolbar">
+                <div class="badge-pill">ENGINE: <span>JAVA 23 VIRTUAL THREADS</span></div>
+                <div class="badge-pill">TICK: <span id="tickBadge">0</span></div>
+                <div class="badge-pill">FREQ: <span>20 Hz (50ms)</span></div>
+            </div>
+            <canvas id="marketCanvas" width="800" height="600"></canvas>
+        </div>
+
+        <!-- Right-Side Real-Time HUD Overlay -->
+        <div class="hud-panel">
+
+            <!-- Active Population Card -->
+            <div class="hud-card">
+                <div class="card-header">
+                    <span>Population & Telemetry</span>
+                    <span style="color:#38bdf8;">LIVE</span>
+                </div>
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Active Agents</div>
+                        <div id="metricAgentCount" class="metric-value">100</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Match Latency</div>
+                        <div id="metricLatency" class="metric-value">&lt; 1ms</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Trades Executed</div>
+                        <div id="metricTradeCount" class="metric-value">0</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Market Velocity</div>
+                        <div id="metricVelocity" class="metric-value">0/s</div>
+                    </div>
+                </div>
+
+                <div class="role-tags">
+                    <div class="role-tag tag-miner">MINERS: <span id="countMiners">40</span></div>
+                    <div class="role-tag tag-crafter">CRAFTERS: <span id="countCrafters">35</span></div>
+                    <div class="role-tag tag-merchant">MERCHANTS: <span id="countMerchants">25</span></div>
+                </div>
+            </div>
+
+            <!-- Live Order Book Snapshot Card -->
+            <div class="hud-card">
+                <div class="card-header">
+                    <span>Commodity Order Books</span>
+                    <span>SPREAD</span>
+                </div>
+                <div class="market-quotes">
+                    <div class="quote-row">
+                        <span class="quote-item">⛏️ RAW_ORE</span>
+                        <div>
+                            <span id="oreBid" class="quote-bid">10.00</span> / 
+                            <span id="oreAsk" class="quote-ask">10.50</span>
+                        </div>
+                        <span id="oreSpread" class="quote-spread">Δ 0.50g</span>
+                    </div>
+                    <div class="quote-row">
+                        <span class="quote-item">⚔️ MYTHIC_SWORD</span>
+                        <div>
+                            <span id="swordBid" class="quote-bid">75.00</span> / 
+                            <span id="swordAsk" class="quote-ask">82.00</span>
+                        </div>
+                        <span id="swordSpread" class="quote-spread">Δ 7.00g</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Trade Feed Card -->
+            <div class="hud-card trades-container">
+                <div class="card-header">
+                    <span>Live Match Execution Log</span>
+                    <span style="font-size:0.7rem; color:var(--accent-emerald);">MCP ROUTED</span>
+                </div>
+                <div id="tradesLog" class="trades-log">
+                    <div class="trade-item" style="border-left-color:#64748b;">
+                        <div class="trade-info">
+                            <span class="trade-asset">Waiting for marketplace trades...</span>
+                            <span class="trade-agents">Connecting to STOMP /topic/market-stream</span>
+                        </div>
+                        <div class="trade-price" style="color:#94a3b8;">--</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <footer>
+        High-Performance Simulation Platform • Zero Synchronized Lock Bottlenecks • Continuous Double-Auction Engine
+    </footer>
+
+    <!-- Simulation Script: Canvas Renderer & WebSocket STOMP Client -->
+    <script>
+        // Map Zones according to backend specifications
+        const ZONES = {
+            LUMBER_MILL: { name: "Lumber Mill", x: 100, y: 100, color: "#10b981", icon: "🌲", desc: "Harvest Wood" },
+            MINE: { name: "Iron Mine", x: 700, y: 100, color: "#f97316", icon: "⛏️", desc: "Extract Ore" },
+            GRAND_EXCHANGE: { name: "Grand Exchange", x: 400, y: 300, color: "#f59e0b", icon: "⚖️", desc: "Double Auction" },
+            GUILD: { name: "Crafting Guild", x: 400, y: 500, color: "#a855f7", icon: "🔨", desc: "Forge Gear" }
+        };
+
+        const canvas = document.getElementById('marketCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // State storage for 60 FPS lerp interpolation
+        const agentsMap = new Map();
+        const floatingTexts = [];
+        let totalTradesCount = 0;
+        let recentTradesRate = 0;
+        let lastFrameTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+        let lastPingTime = Date.now();
+
+        // UI Element handles
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const fpsSpan = document.querySelector('#fpsBadge span');
+        const tickBadge = document.getElementById('tickBadge');
+        const metricAgentCount = document.getElementById('metricAgentCount');
+        const metricLatency = document.getElementById('metricLatency');
+        const metricTradeCount = document.getElementById('metricTradeCount');
+        const metricVelocity = document.getElementById('metricVelocity');
+        const tradesLog = document.getElementById('tradesLog');
+
+        const oreBid = document.getElementById('oreBid');
+        const oreAsk = document.getElementById('oreAsk');
+        const oreSpread = document.getElementById('oreSpread');
+        const swordBid = document.getElementById('swordBid');
+        const swordAsk = document.getElementById('swordAsk');
+        const swordSpread = document.getElementById('swordSpread');
+
+        // Floating Text Particle class
+        class FloatingText {
+            constructor(x, y, text, color = "#4ade80") {
+                this.x = x + (Math.random() - 0.5) * 20;
+                this.y = y;
+                this.text = text;
+                this.color = color;
+                this.opacity = 1.0;
+                this.vy = -1.2;
+                this.life = 60; // frames (~1s)
+            }
+
+            update() {
+                this.y += this.vy;
+                this.life--;
+                this.opacity = Math.max(0, this.life / 60);
+                return this.life > 0;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = this.opacity;
+                ctx.font = 'bold 15px "VT323", monospace';
+                ctx.fillStyle = this.color;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 8;
+                ctx.fillText(this.text, this.x, this.y);
+                ctx.restore();
+            }
+        }
+
+        // STOMP Connection Setup via SockJS
+        function connectStomp() {
+            statusText.innerText = "CONNECTING...";
+            statusDot.className = "status-dot";
+
+            const socket = new SockJS('/ws-market');
+            const stompClient = Stomp.over(socket);
+            stompClient.debug = null; // Suppress verbose log noise
+
+            stompClient.connect({}, function (frame) {
+                statusText.innerText = "ONLINE (STOMP)";
+                statusDot.className = "status-dot online";
+
+                stompClient.subscribe('/topic/market-stream', function (message) {
+                    try {
+                        const frameData = JSON.parse(message.body);
+                        onMarketStreamFrame(frameData);
+                    } catch (e) {
+                        console.error("Frame parse error:", e);
+                    }
+                });
+            }, function (error) {
+                statusText.innerText = "DISCONNECTED - RETRYING";
+                statusDot.className = "status-dot";
+                setTimeout(connectStomp, 2000);
+            });
+        }
+
+        // Handle incoming 50ms (20Hz) batch frame
+        function onMarketStreamFrame(data) {
+            const now = Date.now();
+            if (data.timestamp !== undefined && data.timestamp !== null) {
+                let frameTimeMs;
+                if (typeof data.timestamp === 'number') {
+                    // If timestamp is in seconds (< 1e11), convert to milliseconds
+                    frameTimeMs = data.timestamp < 1e11 ? data.timestamp * 1000 : data.timestamp;
+                } else {
+                    frameTimeMs = new Date(data.timestamp).getTime();
+                }
+                const latency = Math.max(0, now - frameTimeMs);
+                metricLatency.innerText = (latency > 0 && latency < 500 ? latency : 1) + " ms";
+            }
+
+            if (data.tickId !== undefined) {
+                tickBadge.innerText = data.tickId;
+            }
+
+            if (data.activeAgents !== undefined) {
+                metricAgentCount.innerText = data.activeAgents;
+            }
+
+            // Ingest Agents & Smooth Lerp Targets
+            if (Array.isArray(data.agents)) {
+                let miners = 0, crafters = 0, merchants = 0;
+
+                for (const agent of data.agents) {
+                    if (agent.role === 'MINER') miners++;
+                    else if (agent.role === 'CRAFTER') crafters++;
+                    else if (agent.role === 'MERCHANT') merchants++;
+
+                    if (!agentsMap.has(agent.id)) {
+                        agentsMap.set(agent.id, {
+                            id: agent.id,
+                            name: agent.name,
+                            role: agent.role,
+                            x: agent.x,
+                            y: agent.y,
+                            targetX: agent.x,
+                            targetY: agent.y,
+                            gold: agent.gold,
+                            lastAction: agent.lastAction,
+                            actionTimer: 0,
+                            speechBubble: null
+                        });
+                    } else {
+                        const existing = agentsMap.get(agent.id);
+                        existing.targetX = agent.x;
+                        existing.targetY = agent.y;
+                        existing.gold = agent.gold;
+
+                        // Detect new MCP action for speech bubbles
+                        if (existing.lastAction !== agent.lastAction) {
+                            existing.lastAction = agent.lastAction;
+                            formatActionSpeechBubble(existing, agent.lastAction);
+                        }
+                    }
+                }
+
+                document.getElementById('countMiners').innerText = miners;
+                document.getElementById('countCrafters').innerText = crafters;
+                document.getElementById('countMerchants').innerText = merchants;
+            }
+
+            // Ingest executed trades & spawn floating green "+50g" text
+            if (Array.isArray(data.trades) && data.trades.length > 0) {
+                for (const trade of data.trades) {
+                    totalTradesCount++;
+                    recentTradesRate++;
+
+                    // Spawn green floating text at Grand Exchange (400, 300)
+                    floatingTexts.push(new FloatingText(
+                        ZONES.GRAND_EXCHANGE.x,
+                        ZONES.GRAND_EXCHANGE.y,
+                        `+${trade.quantity * trade.price}g`
+                    ));
+
+                    // Add entry to Live Trade Log
+                    appendTradeLog(trade);
+                }
+                metricTradeCount.innerText = totalTradesCount;
+            }
+
+            // Update Order Books telemetry
+            if (data.orderBooks) {
+                if (data.orderBooks.RAW_ORE) {
+                    const ore = data.orderBooks.RAW_ORE;
+                    oreBid.innerText = ore.bestBid ? parseFloat(ore.bestBid).toFixed(2) : '--';
+                    oreAsk.innerText = ore.bestAsk ? parseFloat(ore.bestAsk).toFixed(2) : '--';
+                    oreSpread.innerText = ore.spread ? `Δ ${parseFloat(ore.spread).toFixed(2)}g` : '--';
+                }
+                if (data.orderBooks.MYTHIC_SWORD) {
+                    const sword = data.orderBooks.MYTHIC_SWORD;
+                    swordBid.innerText = sword.bestBid ? parseFloat(sword.bestBid).toFixed(2) : '--';
+                    swordAsk.innerText = sword.bestAsk ? parseFloat(sword.bestAsk).toFixed(2) : '--';
+                    swordSpread.innerText = sword.spread ? `Δ ${parseFloat(sword.spread).toFixed(2)}g` : '--';
+                }
+            }
+        }
+
+        // Format speech bubble text for MCP actions
+        function formatActionSpeechBubble(agent, action) {
+            let text = null;
+            if (action.includes("SOLD_ORE")) {
+                text = "MCP: SELL Ore @ 10g";
+            } else if (action.includes("TRADED_GOODS")) {
+                text = "MCP: BUY Ore & SELL Sword";
+            } else if (action.includes("MARKET_MAKING")) {
+                text = "MCP: 2-Sided Quote @ 9.5/11g";
+            } else if (action.includes("MINING")) {
+                text = "⛏️ Mining raw ore";
+            } else if (action.includes("HARVESTING")) {
+                text = "🌲 Harvesting wood";
+            } else if (action.includes("FORGING")) {
+                text = "⚔️ Forging sword";
+            }
+
+            if (text) {
+                agent.speechBubble = text;
+                agent.actionTimer = 110; // ~1.8 seconds at 60 FPS
+            }
+        }
+
+        // Append item to live trade log
+        function appendTradeLog(trade) {
+            if (tradesLog.children.length === 1 && tradesLog.children[0].innerText.includes("Waiting")) {
+                tradesLog.innerHTML = "";
+            }
+
+            const item = document.createElement('div');
+            item.className = 'trade-item';
+            const priceFormatted = parseFloat(trade.price).toFixed(2);
+
+            item.innerHTML = `
+                <div class="trade-info">
+                    <span class="trade-asset">${trade.quantity}x ${trade.itemId}</span>
+                    <span class="trade-agents">${trade.buyOrderId.substring(0, 6)} ⇄ ${trade.sellOrderId.substring(0, 6)}</span>
+                </div>
+                <div class="trade-price">${priceFormatted}g</div>
+            `;
+
+            tradesLog.prepend(item);
+            while (tradesLog.children.length > 25) {
+                tradesLog.removeChild(tradesLog.lastChild);
+            }
+        }
+
+        // Velocity calculator (trades/sec)
+        setInterval(() => {
+            metricVelocity.innerText = (recentTradesRate * 2) + "/s";
+            recentTradesRate = 0;
+        }, 500);
+
+        // 60 FPS Rendering Loop with Linear Interpolation (Lerp)
+        function render(timestamp) {
+            // FPS Counter
+            frameCount++;
+            if (timestamp - lastFrameTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFrameTime = timestamp;
+                fpsSpan.innerText = fps;
+            }
+
+            // 1. Clear background
+            ctx.fillStyle = "#0a0e17";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 2. Draw Decorative Map Grid & Pathways
+            drawMapGrid();
+            drawPathways();
+
+            // 3. Draw Map Zones
+            drawZones();
+
+            // 4. Update & Draw Agents with smooth 60 FPS lerp
+            drawAgents();
+
+            // 5. Update & Draw Floating Text Particles
+            drawFloatingTexts();
+
+            requestAnimationFrame(render);
+        }
+
+        function drawMapGrid() {
+            ctx.save();
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.025)";
+            ctx.lineWidth = 1;
+            const gridSize = 40;
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function drawPathways() {
+            const paths = [
+                [ZONES.LUMBER_MILL, ZONES.GRAND_EXCHANGE],
+                [ZONES.MINE, ZONES.GRAND_EXCHANGE],
+                [ZONES.GRAND_EXCHANGE, ZONES.GUILD],
+                [ZONES.LUMBER_MILL, ZONES.GUILD],
+                [ZONES.MINE, ZONES.GUILD]
+            ];
+
+            ctx.save();
+            ctx.lineWidth = 3;
+            ctx.setLineDash([6, 6]);
+            ctx.strokeStyle = "rgba(245, 158, 11, 0.15)";
+
+            for (const [z1, z2] of paths) {
+                ctx.beginPath();
+                ctx.moveTo(z1.x, z1.y);
+                ctx.lineTo(z2.x, z2.y);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function drawZones() {
+            for (const key in ZONES) {
+                const zone = ZONES[key];
+
+                ctx.save();
+                // Outer glow aura
+                const gradient = ctx.createRadialGradient(zone.x, zone.y, 10, zone.x, zone.y, 55);
+                gradient.addColorStop(0, zone.color + "44");
+                gradient.addColorStop(0.7, zone.color + "11");
+                gradient.addColorStop(1, "transparent");
+
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(zone.x, zone.y, 55, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Core Zone Circle
+                ctx.fillStyle = "#111827";
+                ctx.strokeStyle = zone.color;
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                ctx.arc(zone.x, zone.y, 34, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Zone Icon Emoji
+                ctx.font = "24px sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(zone.icon, zone.x, zone.y - 2);
+
+                // Zone Title Banner
+                ctx.font = 'bold 12px "Cinzel", serif';
+                ctx.fillStyle = "#f8fafc";
+                ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+                ctx.shadowBlur = 4;
+                ctx.fillText(zone.name.toUpperCase(), zone.x, zone.y + 46);
+
+                // Zone Description
+                ctx.font = '10px "Outfit", sans-serif';
+                ctx.fillStyle = zone.color;
+                ctx.fillText(zone.desc, zone.x, zone.y + 58);
+
+                ctx.restore();
+            }
+        }
+
+        function drawAgents() {
+            const lerpFactor = 0.20; // Buttery smooth 60 FPS lerp against 20Hz ticks
+
+            for (const agent of agentsMap.values()) {
+                // Lerp (x, y) coordinates
+                agent.x += (agent.targetX - agent.x) * lerpFactor;
+                agent.y += (agent.targetY - agent.y) * lerpFactor;
+
+                // Color based on role
+                let roleColor = "#f97316";
+                let roleLetter = "M";
+                if (agent.role === "CRAFTER") {
+                    roleColor = "#a855f7";
+                    roleLetter = "C";
+                } else if (agent.role === "MERCHANT") {
+                    roleColor = "#10b981";
+                    roleLetter = "$";
+                }
+
+                ctx.save();
+
+                // Agent Sprite Glow
+                ctx.shadowColor = roleColor;
+                ctx.shadowBlur = 6;
+
+                // Agent Body
+                ctx.fillStyle = roleColor;
+                ctx.beginPath();
+                ctx.arc(agent.x, agent.y, 6.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Outer Ring
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+
+                // Small Role Identifier Inside Sprite
+                ctx.fillStyle = "#ffffff";
+                ctx.font = 'bold 7px sans-serif';
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(roleLetter, agent.x, agent.y);
+
+                // Draw Speech Bubble if active
+                if (agent.actionTimer > 0 && agent.speechBubble) {
+                    drawSpeechBubble(ctx, agent.x, agent.y - 12, agent.speechBubble, roleColor);
+                    agent.actionTimer--;
+                }
+
+                ctx.restore();
+            }
+        }
+
+        function drawSpeechBubble(ctx, x, y, text, accentColor) {
+            ctx.save();
+            ctx.font = '10px "VT323", monospace';
+            const textWidth = ctx.measureText(text).width;
+            const bubbleWidth = textWidth + 14;
+            const bubbleHeight = 18;
+            const bx = x - bubbleWidth / 2;
+            const by = y - bubbleHeight;
+
+            // Bubble background with glassmorphism
+            ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+            ctx.strokeStyle = accentColor;
+            ctx.lineWidth = 1;
+
+            ctx.beginPath();
+            ctx.roundRect(bx, by, bubbleWidth, bubbleHeight, 4);
+            ctx.fill();
+            ctx.stroke();
+
+            // Downward Pointer Tail
+            ctx.beginPath();
+            ctx.moveTo(x - 3, by + bubbleHeight);
+            ctx.lineTo(x, by + bubbleHeight + 4);
+            ctx.lineTo(x + 3, by + bubbleHeight);
+            ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+            ctx.fill();
+            ctx.stroke();
+
+            // Text
+            ctx.fillStyle = "#fef08a";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(text, x, by + bubbleHeight / 2 + 1);
+
+            ctx.restore();
+        }
+
+        function drawFloatingTexts() {
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const ft = floatingTexts[i];
+                if (ft.update()) {
+                    ft.draw(ctx);
+                } else {
+                    floatingTexts.splice(i, 1);
+                }
+            }
+        }
+
+        // Start STOMP connection and 60 FPS animation loop
+        window.addEventListener('DOMContentLoaded', () => {
+            connectStomp();
+            requestAnimationFrame(render);
+        });
+    </script>
+</body>
+</html>
